@@ -55,13 +55,12 @@ typedef struct	s_env
 	pthread_t	*philo;
 	pthread_mutex_t init_id;
 	pthread_mutex_t check_fork;
-	pthread_mutex_t dead_notice;
 	int	*fork;
 	int	philo_id_iter;
 
 	int dead_found;
-	int	dead_print;
 	int *cycle_end;
+	int	*dead_arr;
 }		t_env;
 
 int	check_input(char *s)
@@ -134,61 +133,6 @@ unsigned long	get_dif_time(unsigned long time)
 
 //  =========  start thread ======
 
-void	set_philo(t_env *env, int *id, unsigned long *end_time)
-{
-	pthread_mutex_lock(&env->init_id);
-	*id = env->philo_id_iter;
-	env->philo_id_iter++;
-	*end_time = env->base_time + env->time_to_die;
-	pthread_mutex_unlock(&env->init_id);
-}
-
-void ft_usleep_till(unsigned long time)
-{
-	while (get_time() < time)
-	{
-		usleep(100);
-	}
-}
-
-void	philo_take_fork(t_env *env, int id, unsigned long end_time, int *ate)
-{
-	int	dead;
-
-	dead = 0;
-	env->fork[id - 1] = 0;
-	env->fork[id % env->philo_size] = 0;
-	env->cycle_end[id - 1] -= 1;
-	if (env->time_to_eat > get_dif_time(end_time))
-	{
-		env->dead_found = 1;
-		dead = 1;
-	}
-	pthread_mutex_unlock(&env->check_fork);
-	*ate = 1;
-	printf("\033[0;33m%lu %d has taken a fork\n\033[0m", get_dif_time(env->base_time),  id);
-	printf("\033[0;33m%lu %d has taken a fork\n\033[0m", get_dif_time(env->base_time),  id);
-	printf("\033[0;32m%lu %d is eating\n\033[0m", get_dif_time(env->base_time), id);
-	if (dead)
-	{
-		pthread_mutex_lock(&env->dead_notice);
-		if (env->dead_print == 0)
-		{
-			ft_usleep_till(end_time);  // need to check dead_arr sould be the one who got minus from current gettimeofday() :TODO:
-			printf("\033[0;31m%lu %d has dead\n\033[0m", get_dif_time(env->base_time), id);
-			env->dead_print = 1;
-		}
-		pthread_mutex_unlock(&env->dead_notice);
-	}
-	else
-		ft_usleep_till(get_time() + env->time_to_eat);
-	pthread_mutex_lock(&env->check_fork);
-	env->fork[id - 1] = 1;
-	env->fork[id % env->philo_size] = 1;
-	pthread_mutex_unlock(&env->check_fork);
-}
-
-
 void	*template(void *arg)
 {
 	int	philo_id;
@@ -198,47 +142,68 @@ void	*template(void *arg)
 	int	wait;
 	unsigned long end_time;
 
+	wait = 1;
 	dead = 0;
 	ate = 0;
 	env = (t_env *)arg;
-	set_philo(env, &philo_id, &end_time);
+	pthread_mutex_lock(&env->init_id);
+	philo_id = env->philo_id_iter;
+	printf("get_id : %d\n", philo_id);
+	env->philo_id_iter++;
+	pthread_mutex_unlock(&env->init_id);
 	while (env->dead_found == 0 && env->cycle_end[philo_id - 1]) 
 	{
 		pthread_mutex_lock(&env->check_fork);
+		// printf("mutex_lock : %d\n", philo_id);
 		if (env->fork[philo_id - 1] == 1 && env->fork[philo_id % env->philo_size] == 1)
-			philo_take_fork(env, philo_id, end_time, &ate);
-		else
-			pthread_mutex_unlock(&env->check_fork);
-		pthread_mutex_lock(&env->dead_notice);
-		if (ate == 1 && env->dead_found == 0)
 		{
-			printf("\033[0;34m%lu %d is sleeping\n\033[0m", get_dif_time(env->base_time),  philo_id);
-			if (env->time_to_sleep > get_dif_time(end_time))
+			env->fork[philo_id -1 ] = 0;
+			env->fork[philo_id % env->philo_size] = 0;
+			env->cycle_end[philo_id - 1] -= 1;
+			if (env->time_to_eat > get_dif_time(env->dead_arr[philo_id - 1]))
 			{
+				dead = 1;
 				env->dead_found = 1;
-				pthread_mutex_unlock(&env->dead_notice);
-				ft_usleep_till(end_time);
-				printf("\033[0;31m");
-				printf("%lu %d has dead\n",get_dif_time(env->base_time), philo_id);
-				printf("\033[0m");
+			}
+			pthread_mutex_unlock(&env->check_fork);
+			ate = 1;
+			wait = 0;
+			printf("%lu %d has taken a fork\n", get_dif_time(env->base_time),  philo_id);
+			printf("%lu %d has taken a fork\n", get_dif_time(env->base_time),  philo_id);
+			printf("%lu %d is eating\n", get_dif_time(env->base_time), philo_id);
+			printf("%lu time to sleep \n", env->time_to_sleep);
+			printf("%lu time to die \n", get_dif_time(env->dead_arr[philo_id - 1]));  // need to check dead_arr sould be the one who got minus from current gettimeofday() :TODO:
+			if (dead)
+			{
+				usleep(get_dif_time(env->dead_arr[philo_id - 1]) * 1000);  // need to check dead_arr sould be the one who got minus from current gettimeofday() :TODO:
+				printf("%d has dead\n", philo_id);
 			}
 			else
-			{
-				pthread_mutex_unlock(&env->dead_notice);
-				ate = 0;
-				end_time += env->time_to_die;
-				ft_usleep_till(env->time_to_sleep + get_time());
-			}
-			pthread_mutex_lock(&env->dead_notice);
-			if (env->dead_found == 0)
-				printf("\033[0;37m%lu %d is thinking\n\033[0m", get_dif_time(env->base_time),  philo_id);
-			pthread_mutex_unlock(&env->dead_notice);
-			usleep(200);
+				usleep(env->time_to_sleep * 1000);
+			pthread_mutex_lock(&env->check_fork);
+			env->fork[philo_id - 1] = 1;
+			env->fork[philo_id % env->philo_size] = 1;
+			pthread_mutex_unlock(&env->check_fork);
+		}
+		else if (wait == 1)
+		{
+			pthread_mutex_unlock(&env->check_fork);
+			printf("%lu %d is waiting\n",get_dif_time(env->base_time), philo_id);
+			wait = 0;
 		}
 		else
-			pthread_mutex_unlock(&env->dead_notice);
-		if (env->dead_found)
-			break;
+		{
+			pthread_mutex_unlock(&env->check_fork);
+			usleep(100);
+		}
+		if (ate == 1)
+		{
+			printf("%lu %d is sleeping\n", get_dif_time(env->base_time),  philo_id);
+			usleep(env->time_to_sleep * 1000);
+			printf("%lu %d is thinking\n", get_dif_time(env->base_time),  philo_id);
+			ate = 0;
+			wait = 1;
+		}
 	}
 	return (arg);
 }
@@ -250,18 +215,18 @@ void init_env(t_env *env)
 	env->philo = (pthread_t *)malloc(sizeof(pthread_t) * env->philo_size);
 	env->fork = (int *)malloc(sizeof(int) * env->philo_size);
 	env->cycle_end = (int *)malloc(sizeof(int) * env->philo_size);
+	env->dead_arr = (int *)malloc(sizeof(int) * env->philo_size);
 	env->dead_found = 0;
 	env->philo_id_iter = 1;
-	env->dead_print = 0;
 	pthread_mutex_init(&env->init_id, NULL);
 	pthread_mutex_init(&env->check_fork, NULL);
-	pthread_mutex_init(&env->dead_notice, NULL);
     env->base_time = get_time(); 
 	i = 0;
 	while (i < env->philo_size)
 	{
 		env->fork[i] = 1;
 		env->cycle_end[i] = env->max_eat;
+		env->dead_arr[i] = get_time() + env->time_to_die;
 		i++;
 	}
 }
@@ -296,7 +261,6 @@ int	main(int ac, char *av[])
 
 	if (ac < 5 || ac > 6)
 		return (2); // arg_error
-	// :TODO: need to handle philo_n == 1; because 1%1 = 0 it will take same fork
 	if (get_input(av, ac, &env) != 0)
 		return (2); // input_error
 	printf("end\n");
